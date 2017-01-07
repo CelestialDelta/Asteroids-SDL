@@ -19,6 +19,7 @@ add_executable(
 	src/math.cpp
 	src/entity.cpp
 	src/world.cpp
+	src/model.cpp
 	)
 
 include_directories(
