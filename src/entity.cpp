@@ -1,6 +1,8 @@
 #include "../include/entity.h"
 #include "../include/game.h"
 
+//=================================================================================================
+
 Entity::Entity()
 	: _velocity(), _position(), _size(), _angle()
 {
@@ -20,9 +22,29 @@ void Entity::set_velocity(const glm::vec2& vel)
 	_velocity = vel;
 }
 
+void Entity::set_x_velocity(const float& vx)
+{
+	_velocity.x = vx;
+}
+
+void Entity::set_y_velocity(const float& vy)
+{
+	_velocity.y = vy;
+}
+
 void Entity::set_position(const glm::vec2& pos)
 {
 	_position = pos;
+}
+
+void Entity::set_x_position(const float& x)
+{
+	_position.x = x;
+}
+
+void Entity::set_y_position(const float& y)
+{
+	_position.y = y;
 }
 
 void Entity::set_angle(const float& angle)
@@ -68,8 +90,20 @@ Projectile::~Projectile()
 {
 }
 
-void Projectile::handle(EVENT event, float dt)
+void Projectile::handle(KEY_EVENT event, float dt)
 {
+	std::vector<Entity*> ents = _player->world()->entities();
+	for(size_t i = 0; i < ents.size(); i++)
+	{
+		Entity* ent = ents.at(i);
+		if(ent->id() == ENTITY_ID::ASTEROID)
+		{
+			/*if(static_cast<Asteroid*>(ent)->collide(_position, _size))
+			{
+				std::cout << "Collision" << std::endl;
+			}*/
+		}
+	}
 }
 
 void Projectile::update(float dt)
@@ -113,6 +147,286 @@ void Projectile::draw(SDL_Renderer* renderer) const
 	circleRGBA(renderer, _position.x, _position.y, _size.x, 255, 255, 255, 255);
 }
 
+ENTITY_ID Projectile::id() const
+{
+	return ENTITY_ID::PROJECTILE;
+}
+
+//=================================================================================================
+
+PlayerState::PlayerState(Player* player)
+	: player(player)
+{
+}
+
+void PlayerState::draw()
+{
+	std::vector<glm::vec2> vertices = player->vertices();
+	glm::vec2 v1 = vertices.at(0);
+	glm::vec2 v2 = vertices.at(1);
+	glm::vec2 v3 = vertices.at(2);
+	
+	SDL_Renderer* renderer = player->world()->renderer();
+	
+	trigonRGBA(renderer, v1.x, v1.y, v2.x, v2.y, v3.x, v3.y, 255, 255, 255, 255);
+
+	std::vector<Projectile*> projs = player->projectiles();	
+	for(size_t i = 0; i < projs.size(); i++)
+	{
+		projs.at(i)->draw(renderer);
+	}
+}
+
+PlayerStateDefault::PlayerStateDefault(Player* player)
+	: PlayerState(player)
+{
+}
+
+void PlayerStateDefault::move(KEY_EVENT motion, float dt)
+{
+	switch(motion)
+	{
+	case KEY_EVENT::PLAYER_MOVE_ACCELERATE:
+	{
+		float angle = player->angle();
+		float accel = player->acceleration();
+		
+		float vy = player->velocity().y;
+		float vx = player->velocity().x;
+		
+		float mv = player->max_velocity();
+		
+		float ay = accel * cos(angle) * dt;
+		float ax = accel * sin(angle) * dt;
+		if((std::abs(vy) + ay) * 1000 >= mv)
+		{
+			player->set_y_velocity(mv);
+		}
+		else
+		{
+			vy += ay;
+			player->set_y_velocity(vy);
+		}
+		
+		if((std::abs(vx) + ax) * 1000 >= mv)
+		{
+			player->set_x_velocity(mv);
+		}
+		else
+		{
+			vx += ax;
+			player->set_x_velocity(vx);
+		}
+		break;
+	}
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_RIGHT:
+	{
+		float angle = player->angle() + math::to_radians(player->rotation_speed());
+		player->set_angle(angle);
+		break;
+		
+	}
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_LEFT:
+	{
+		float angle = player->angle() - math::to_radians(player->rotation_speed());
+		player->set_angle(angle);
+		break;
+	}
+	}
+}
+
+void PlayerStateDefault::handle(KEY_EVENT event, float dt)
+{
+	switch(event)
+	{
+	case KEY_EVENT::PLAYER_MOVE_ACCELERATE:
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_RIGHT:
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_LEFT:
+		move(event, dt);
+		break;
+	case KEY_EVENT::PLAYER_SHOOT:
+		player->shoot();
+		break;
+	}
+	
+	std::vector<Projectile*> projs = player->projectiles();
+	for(size_t i = 0; i < projs.size(); i++)
+	{
+		projs.at(i)->handle(event, dt);
+	}
+}
+
+void PlayerStateDefault::update(float dt)
+{
+	float x = player->position().x;
+	float y = player->position().y;
+	
+	float vx = player->velocity().x;
+	float vy = player->velocity().y;
+	
+	float sx = player->size().x;
+	float sy = player->size().y;
+	
+	glm::vec2 np(x + vx, y - vy);
+	player->set_position(np);
+	
+	float xbound = player->world()->bounds().x;
+	float ybound = player->world()->bounds().y;
+	
+	if(x + 2 * sx <= 0)
+	{
+		player->set_x_position(xbound + sx);
+	}
+	if(x - 2 * sx >= xbound)
+	{
+		player->set_x_position(0 - sx);
+	}
+	
+	if(y + 2 * sy <= 0)
+	{
+		player->set_y_position(ybound + sy);
+	}
+	if(y - 2 * sy >= ybound)
+	{
+		player->set_y_position(0 - sy);
+	}
+
+	std::vector<glm::vec2> vertices = player->vertices();	
+	std::vector<Projectile*> projs = player->projectiles();
+	float angle = player->angle();
+	
+	vertices.at(0) = glm::vec2(x, y - sy);
+	vertices.at(1) = glm::vec2(x - sx, y + sy);
+	vertices.at(2) = glm::vec2(x + sx, y + sy);
+	player->set_vertices(vertices);
+	
+	for(size_t i = 0; i < vertices.size(); i++)
+	{
+		vertices.at(i) = math::rotate(player->position(), vertices.at(i), angle);
+	}
+	player->set_vertices(vertices);
+	
+	for(size_t i = 0; i < projs.size(); i++)
+	{
+		projs.at(i)->update(dt);
+	}
+}
+
+//=================================================================================================
+
+PlayerStateRigid::PlayerStateRigid(Player* player, const float& jump)
+	: PlayerState(player), jump(jump)
+{
+}
+
+void PlayerStateRigid::move(KEY_EVENT motion, float dt)
+{
+	float x = player->position().x;
+	float y = player->position().y;	
+	
+	switch(motion)
+	{
+	case KEY_EVENT::PLAYER_MOVE_FORWARD:
+		player->set_y_position(y - jump * dt);
+		break;
+	case KEY_EVENT::PLAYER_MOVE_BACKWARD:
+		player->set_y_position(y + jump * dt);
+		break;
+	case KEY_EVENT::PLAYER_MOVE_RIGHT:
+		player->set_x_position(x + jump * dt);
+		break;
+	case KEY_EVENT::PLAYER_MOVE_LEFT:
+		player->set_x_position(x - jump * dt);
+		break;
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_RIGHT:
+	{
+		float angle = player->angle() + math::to_radians(player->rotation_speed());
+		player->set_angle(angle);
+		break;
+	}
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_LEFT:
+	{
+		float angle = player->angle() - math::to_radians(player->rotation_speed());
+		player->set_angle(angle);
+		break;
+	}
+	}
+}
+
+void PlayerStateRigid::handle(KEY_EVENT event, float dt)
+{
+	switch(event)
+	{
+	case KEY_EVENT::PLAYER_MOVE_FORWARD:
+	case KEY_EVENT::PLAYER_MOVE_BACKWARD:
+	case KEY_EVENT::PLAYER_MOVE_RIGHT:
+	case KEY_EVENT::PLAYER_MOVE_LEFT:
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_LEFT:
+	case KEY_EVENT::PLAYER_MOVE_ROTATE_RIGHT:
+		move(event, dt);
+		break;
+	case KEY_EVENT::PLAYER_SHOOT:
+		player->shoot();
+		break;
+	}
+	
+	std::vector<Projectile*> projs = player->projectiles();
+	for(size_t i = 0; i < projs.size(); i++)
+	{
+		projs.at(i)->handle(event, dt);
+	}
+}
+
+void PlayerStateRigid::update(float dt)
+{
+	float x = player->position().x;
+	float y = player->position().y;
+	
+	float sx = player->size().x;
+	float sy = player->size().y;
+	
+	float xbound = player->world()->bounds().x;
+	float ybound = player->world()->bounds().y;
+	
+	if(x + 2 * sx <= 0)
+	{
+		player->set_x_position(xbound + sx);
+	}
+	if(x - 2 * sx >= xbound)
+	{
+		player->set_x_position(0 - sx);
+	}
+	
+	if(y + 2 * sy <= 0)
+	{
+		player->set_y_position(ybound + sy);
+	}
+	if(y - 2 * sy >= ybound)
+	{
+		player->set_y_position(0 - sy);
+	}
+
+	std::vector<glm::vec2> vertices = player->vertices();	
+	std::vector<Projectile*> projs = player->projectiles();
+	float angle = player->angle();
+	
+	vertices.at(0) = glm::vec2(x, y - sy);
+	vertices.at(1) = glm::vec2(x - sx, y + sy);
+	vertices.at(2) = glm::vec2(x + sx, y + sy);
+	player->set_vertices(vertices);
+	
+	for(size_t i = 0; i < vertices.size(); i++)
+	{
+		vertices.at(i) = math::rotate(player->position(), vertices.at(i), angle);
+	}
+	player->set_vertices(vertices);
+	
+	for(size_t i = 0; i < projs.size(); i++)
+	{
+		projs.at(i)->update(dt);
+	}
+}
+
 //=================================================================================================
 
 Player::Player()
@@ -121,7 +435,7 @@ Player::Player()
 }
 
 Player::Player(World* world, const glm::vec2& vel, const float& max_vel, const glm::vec2& pos, const glm::vec2& size, const float& angle, const float& accel, const float& rspeed)
-	: Entity(vel, pos, size, angle), _world(world), _projectiles(), _delay(DEFAULT_PROJECTILE_DELAY), _vertices(), _acceleration(accel), _maxvelocity(max_vel), _rotationspeed(rspeed)
+	: Entity(vel, pos, size, angle), _world(world), _projectiles(), _delay(DEFAULT_PROJECTILE_DELAY), _states(), _vertices(), _acceleration(accel), _maxvelocity(max_vel), _rotationspeed(rspeed)
 {
 	float x = pos.x;
 	float y = pos.y;
@@ -129,6 +443,8 @@ Player::Player(World* world, const glm::vec2& vel, const float& max_vel, const g
 	_vertices.push_back(glm::vec2(x, y - size.y)); //top vertex
 	_vertices.push_back(glm::vec2(x - size.x, y + size.y)); //left vertex
 	_vertices.push_back(glm::vec2(x + size.x, y + size.y)); //right vertex
+	
+	_states.push_back(new PlayerStateDefault(this));
 }
 
 Player::~Player()
@@ -140,40 +456,27 @@ Player::~Player()
 	}
 }
 
-void Player::move(MOTION motion, float dt)
+void Player::push_state(ENTITY_STATE_ID id)
 {
-	switch(motion)
+	switch(id)
 	{
-	case MOTION::ACCELERATE:
-	{
-		float ay = _acceleration * cos(_angle) * dt;
-		float ax = _acceleration * sin(_angle) * dt;
-		if((std::abs(_velocity.y ) + ay) * 1000 >= _maxvelocity)
-		{
-			_velocity.y = _maxvelocity;
-		}
-		else
-		{
-			_velocity.y += ay;
-		}
-		
-		if((std::abs(_velocity.x) + ax) * 1000 >= _maxvelocity)
-		{
-			_velocity.x = _maxvelocity;
-		}
-		else
-		{
-			_velocity.x += ax;
-		}
-	}
-	break;
-	case MOTION::ROTATE_RIGHT:
-		_angle += math::to_radians(_rotationspeed);
+	case ENTITY_STATE_ID::PLAYER_DEFAULT:
+		_states.push_back(new PlayerStateDefault(this));
 		break;
-	case MOTION::ROTATE_LEFT:
-		_angle -= math::to_radians(_rotationspeed);
+	case ENTITY_STATE_ID::PLAYER_RIGID:
+		_states.push_back(new PlayerStateRigid(this, PLAYER_DEBUG_MOTION));
+		break;
+	case ENTITY_STATE_ID::PLAYER_STATIONARY:
+		//
 		break;
 	}
+}
+
+void Player::pop_state()
+{
+	PlayerState* state = _states.back();
+	_states.pop_back();
+	delete state;
 }
 
 void Player::pop_projectile()
@@ -197,98 +500,20 @@ void Player::shoot()
 	}
 }
 
-void Player::handle(EVENT event, float dt)
+void Player::handle(KEY_EVENT event, float dt)
 {
-	switch(event)
-	{
-	case EVENT::PLAYER_MOVE_ACCELERATE:
-		move(MOTION::ACCELERATE, dt);
-		break;
-	case EVENT::PLAYER_MOVE_ROTATE_RIGHT:
-		move(MOTION::ROTATE_RIGHT, dt);
-		break;
-	case EVENT::PLAYER_MOVE_ROTATE_LEFT:
-		move(MOTION::ROTATE_LEFT, dt);
-		break;
-	case EVENT::PLAYER_SHOOT:
-		shoot();
-		break;
-	case EVENT::PLAYER_DELETE_PROJECTILE:
-		if(!_projectiles.empty())
-		{
-			delete _projectiles.front();
-			_projectiles.erase(_projectiles.begin());
-		}
-		break;
-	}
-	
-	std::cout << "Player Handle!" << std::endl;
-	
-	for(size_t i = 0; i < _projectiles.size(); i++)
-	{
-		//std::cout << "Handle!" << std::endl;
-		_projectiles.at(i)->handle(event, dt);
-	}
+	_states.back()->handle(event, dt);
 }
 
 void Player::update(float dt)
-{
-	_position.x += _velocity.x;
-	_position.y -= _velocity.y;
-	
-	float x = _position.x;
-	float y = _position.y;
-	
-	float xbound = _world->bounds().x;
-	float ybound = _world->bounds().y;
-	
-	if(x + _size.y <= 0)
-	{
-		_position.x = xbound - _size.y;
-	}
-	if(x - _size.y >= xbound)
-	{
-		_position.x = 0 - _size.y;
-	}
-	
-	if(y + _size.y <= 0)
-	{
-		_position.y = ybound + _size.y;
-	}
-	if(y - _size.y >= ybound)
-	{
-		_position.y = 0 - _size.y;
-	}
-	
-	_vertices.at(0) = glm::vec2(x, y - _size.y);
-	_vertices.at(1) = glm::vec2(x - _size.x, y + _size.y);
-	_vertices.at(2) = glm::vec2(x + _size.x, y + _size.y);
-	
-	for(size_t i = 0; i < _vertices.size(); i++)
-	{
-		_vertices.at(i) = math::rotate(_position, _vertices.at(i), _angle);
-	}
-	
-	for(size_t i = 0; i < _projectiles.size(); i++)
-	{
-		_projectiles.at(i)->update(dt);
-	}
-	
+{	
+	_states.back()->update(dt);
 	_delay.tick();
 }
 
 void Player::draw(SDL_Renderer* renderer) const
 {
-	glm::vec2 v1 = _vertices.at(0);
-	glm::vec2 v2 = _vertices.at(1);
-	glm::vec2 v3 = _vertices.at(2);
-	
-	trigonRGBA(renderer, v1.x, v1.y, v2.x, v2.y, v3.x, v3.y, 255, 255, 255, 255);
-	
-	for(size_t i = 0; i < _projectiles.size(); i++)
-	{
-		_projectiles.at(i)->draw(renderer);
-	}
+	_states.back()->draw();
 }
 
 void Player::set_acceleration(const float& accel)
@@ -304,6 +529,11 @@ void Player::set_max_velocity(const float& max_vel)
 void Player::set_rotation_speed(const float& rspeed)
 {
 	_rotationspeed = rspeed;
+}
+
+void Player::set_vertices(const std::vector<glm::vec2>& vertices)
+{
+	_vertices = vertices;
 }
 
 const float& Player::acceleration() const
@@ -326,75 +556,110 @@ World* Player::world() const
 	return _world;
 }
 
+const std::vector<Projectile*>& Player::projectiles() const
+{
+	return _projectiles;
+}
+
+const std::vector<glm::vec2>& Player::vertices() const
+{
+	return _vertices;
+}
+
+ENTITY_ID Player::id() const
+{
+	return ENTITY_ID::PLAYER;
+}
+
 //=================================================================================================
 
 Asteroid::Asteroid()
-	: Entity(), _world(), _vertices()
+	: Entity(), _world(), _model()//, _vertices()
 {
 }
 
-Asteroid::Asteroid(World* world, const glm::vec2& vel, const glm::vec2& pos, const glm::vec2& size, const float& angle)
-	: Entity(vel, pos, size, angle), _world(world), _vertices()
+Asteroid::Asteroid(World* world, const Model& model, const glm::vec2& vel, const glm::vec2& pos, const glm::vec2& size, const float& angle)
+	: Entity(vel, pos, size, angle), _model(model), _world(world)//, _vertices()
 {
-	_vertices.push_back(glm::vec2(0, 20));
+	/*_vertices.push_back(glm::vec2(0, 20));
 	_vertices.push_back(glm::vec2(30, 0));
 	_vertices.push_back(glm::vec2(50, 10));
 	_vertices.push_back(glm::vec2(80, 0));
 	_vertices.push_back(glm::vec2(80, 30));
 	_vertices.push_back(glm::vec2(50, 70));
 	_vertices.push_back(glm::vec2(20, 70));
-	_vertices.push_back(glm::vec2(20, 40));
+	_vertices.push_back(glm::vec2(20, 40));*/
 }
 
 Asteroid::~Asteroid()
 {
 }
 
-void Asteroid::handle(EVENT event, float dt)
+bool Asteroid::collide(const std::vector<glm::vec2>& vertices, const glm::vec2& position) const
+{
+	for(size_t i = 0; i < vertices.size(); i++)
+	{	
+		glm::vec2 p1 = vertices.at(i) + position;
+		glm::vec2 p2 = ((i != vertices.size() - 1) ? vertices.at(i + 1) : vertices.at(0)) + position;
+	}
+
+	return false;
+}
+
+void Asteroid::handle(KEY_EVENT event, float dt)
 {
 }
 
 void Asteroid::update(float dt)
 {
-	_position.x += _velocity.x * sin(_angle) * dt;
-	_position.y += _velocity.y * cos(_angle) * dt;
-	
-	float x = _position.x;
-	float y = _position.y;
-	
-	float xbound = _world->bounds().x;
-	float ybound = _world->bounds().y;
-	
-	//check graph paper for height
-	if(x + _size.x <= 0)
+	if(!_world->frozen())
 	{
-		_position.x = xbound + _size.x;
-	}
-	if(x - _size.x >= xbound)
-	{
-		_position.x = 0 - _size.x;
-	}
+		//std::cout << (g_debug) << std::endl;
+		_position.x += _velocity.x * sin(_angle) * dt;
+		_position.y += _velocity.y * cos(_angle) * dt;
 	
-	if(y + _size.y <= 0)
-	{
-		_position.y = ybound + _size.y;
-	}
-	if(y - _size.y >= ybound)
-	{
-		_position.y = 0 - _size.y;
-	}
+		float x = _position.x;
+		float y = _position.y;
 	
+		float xbound = _world->bounds().x;
+		float ybound = _world->bounds().y;
+	
+		//check graph paper for height
+		if(x + _size.x <= 0)
+		{
+			_position.x = xbound + _size.x;
+		}
+		if(x - _size.x >= xbound)
+		{
+			_position.x = 0 - _size.x;
+		}
+	
+		if(y + _size.y <= 0)
+		{
+			_position.y = ybound + _size.y;
+		}
+		if(y - _size.y >= ybound)
+		{
+			_position.y = 0 - _size.y;
+		}
+	}
 }
 
 void Asteroid::draw(SDL_Renderer* renderer) const
 {
-	for(size_t i = 0; i < _vertices.size(); i++)
+	std::vector<glm::vec2> vertices = _model.vertices();
+	//std::cout << vertices.size() << std::endl;
+	for(size_t i = 0; i < vertices.size(); i++)
 	{
-		glm::vec2 p1 = _vertices.at(i) + _position;
-		glm::vec2 p2 = ((i != _vertices.size() - 1) ? _vertices.at(i + 1) : _vertices.at(0)) + _position;
+		glm::vec2 p1 = vertices.at(i) + _position;
+		glm::vec2 p2 = ((i != vertices.size() - 1) ? vertices.at(i + 1) : vertices.at(0)) + _position;
 		
 		lineRGBA(renderer, p1.x, p1.y, p2.x, p2.y, 255, 255, 255, 255);
 	}
 	//circleRGBA(renderer, _position.x, _position.y, _size.x, 255, 255, 255, 255);
 }
 
+ENTITY_ID Asteroid::id() const
+{
+	return ENTITY_ID::ASTEROID;
+}
